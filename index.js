@@ -1,39 +1,48 @@
-// Turn server is on Mozilla's VPN. Replace with your own.
-var cfg = { iceTransportPolicy: "all", // set to "relay" to force TURN.
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" },
-                         { urls: "turn:10.252.73.50",
-                           username:"webrtc", credential:"firefox" }] };
-var pc1 = new RTCPeerConnection(cfg), pc2 = new RTCPeerConnection(cfg);
+var express = require('express'),
+app = express(),
+server = require('http').createServer(app);
 
-var add = (pc, can) => can && pc.addIceCandidate(can).catch(log);
-pc1.onicecandidate = e => add(pc2, e.candidate);
-pc2.onicecandidate = e => add(pc1, e.candidate);
-pc2.oniceconnectionstatechange = () => log(pc2.iceConnectionState);
-pc2.onaddstream = e => v2.srcObject = e.stream;
+server.listen(3000);
 
-var findSelected = stats =>
-  [...stats.values()].find(s => s.type == "candidate-pair" && s.selected);
+app.get('/', function(req, res) {
+    res.sendfile(__dirname + '/index.html');
+});
 
-var start = () => navigator.mediaDevices.getUserMedia({ video: true })
-  .then(stream => pc1.addStream(v1.srcObject = stream))
-  .then(() => pc1.createOffer()).then(d => pc1.setLocalDescription(d))
-  .then(() => pc2.setRemoteDescription(pc1.localDescription))
-  .then(() => pc2.createAnswer()).then(d => pc2.setLocalDescription(d))
-  .then(() => pc1.setRemoteDescription(pc2.localDescription))
-  .then(() => waitUntil(() => pc1.getStats().then(s => findSelected(s))))
-  .then(() => pc1.getStats())
-  .then(stats => {
-    var candidate = stats.get(findSelected(stats).localCandidateId);
-    if (candidate.candidateType == "relayed") {
-      log("Uses TURN server: " + candidate.ipAddress);
+var WebSocketServer = require('ws').Server,
+wss = new WebSocketServer({server: server});
+
+// ´æ´¢socketµÄÊý×é£¬ÕâÀïÖ»ÄÜÓÐ2¸ösocket£¬Ã¿´Î²âÊÔÐèÒªÖØÆô£¬·ñÔò»á³ö´í
+var wsc = [],
+index = 1;
+
+// ÓÐsocketÁ¬Èë
+wss.on('connection', function(ws) {
+    console.log('connection');
+
+    // ½«socket´æÈëÊý×é
+    wsc.push(ws);
+
+    // ¼ÇÏÂ¶Ô·½socketÔÚÊý×éÖÐµÄÏÂ±ê£¬ÒòÎªÕâ¸ö²âÊÔ³ÌÐòÖ»ÔÊÐí2¸ösocket
+    // ËùÒÔµÚÒ»¸öÁ¬ÈëµÄsocket´æÈë0£¬µÚ¶þ¸öÁ¬ÈëµÄ¾ÍÊÇ´æÈë1
+    // otherIndex¾Í·´×ÅÀ´£¬µÚÒ»¸ösocketµÄotherIndexÏÂ±êÎª1£¬µÚ¶þ¸ösocketµÄotherIndexÏÂ±êÎª0
+    var otherIndex = index--,
+    desc = null;
+
+    if (otherIndex == 1) {
+        desc = 'first socket';
     } else {
-      log("Does not use TURN (uses " + candidate.candidateType + ").");
+        desc = 'second socket';
     }
-  })
-  .catch(log);
 
-var waitUntil = f => Promise.resolve(f())
-  .then(done => done || wait(200).then(() => waitUntil(f)));
+    // ×ª·¢ÊÕµ½µÄÏûÏ¢
+    ws.on('message', function(message) {
+        var json = JSON.parse(message);
+        console.log('received (' + desc + '): ', json);
 
-var wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-var log = msg => div.innerHTML += msg +"<br>";
+        wsc[otherIndex].send(message, function (error) {
+            if (error) {
+                console.log('Send message error (' + desc + '): ', error);
+            }
+        });
+    });
+});
